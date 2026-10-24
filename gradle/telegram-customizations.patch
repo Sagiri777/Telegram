@@ -1,0 +1,359 @@
+diff --git a/TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java b/TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java
+index ec503d9..8dbc307 100644
+--- a/TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java
++++ b/TMessagesProj/src/main/java/org/telegram/messenger/MessageObject.java
+@@ -10023,11 +10023,6 @@ public class MessageObject {
+     }
+ 
+     public static boolean isSecretMedia(TLRPC.Message message) {
+-        if (message instanceof TLRPC.TL_message_secret) {
+-            return (getMedia(message) instanceof TLRPC.TL_messageMediaPhoto || isRoundVideoMessage(message) || isVideoMessage(message)) && getMedia(message).ttl_seconds != 0;
+-        } else if (message instanceof TLRPC.TL_message) {
+-            return (getMedia(message) instanceof TLRPC.TL_messageMediaPhoto || getMedia(message) instanceof TLRPC.TL_messageMediaDocument) && getMedia(message).ttl_seconds != 0;
+-        }
+         return false;
+     }
+ 
+@@ -10037,12 +10032,8 @@ public class MessageObject {
+         }
+         if (hasExtendedMediaPreview()) {
+             return true;
+-        } else if (messageOwner instanceof TLRPC.TL_message_secret) {
+-            int ttl = Math.max(messageOwner.ttl, getMedia(messageOwner).ttl_seconds);
+-            return ttl > 0 && ((getMedia(messageOwner) instanceof TLRPC.TL_messageMediaPhoto || isVideo() || isGif()) && ttl <= 60 || isRoundVideo());
+-        } else if (messageOwner instanceof TLRPC.TL_message) {
+-            return (getMedia(messageOwner) != null && getMedia(messageOwner).ttl_seconds != 0) && (getMedia(messageOwner) instanceof TLRPC.TL_messageMediaPhoto || getMedia(messageOwner) instanceof TLRPC.TL_messageMediaDocument);
+         }
++        // Self-destructing media uses the regular, unmasked message UI.
+         return false;
+     }
+ 
+@@ -10051,11 +10042,6 @@ public class MessageObject {
+     }
+ 
+     public boolean isSecretMedia() {
+-        if (messageOwner instanceof TLRPC.TL_message_secret) {
+-            return (((getMedia(messageOwner) instanceof TLRPC.TL_messageMediaPhoto) || isGif()) && messageOwner.ttl > 0 && messageOwner.ttl <= 60 || isVoice() || isRoundVideo() || isVideo());
+-        } else if (messageOwner instanceof TLRPC.TL_message) {
+-            return (getMedia(messageOwner) != null && getMedia(messageOwner).ttl_seconds != 0) && (getMedia(messageOwner) instanceof TLRPC.TL_messageMediaPhoto || getMedia(messageOwner) instanceof TLRPC.TL_messageMediaDocument);
+-        }
+         return false;
+     }
+ 
+@@ -11212,11 +11198,11 @@ public class MessageObject {
+     }
+ 
+     public boolean isVoiceOnce() {
+-        return isVoice() && messageOwner != null && messageOwner.media != null && messageOwner.media.ttl_seconds == 0x7FFFFFFF;
++        return false;
+     }
+ 
+     public boolean isRoundOnce() {
+-        return isRoundVideo() && messageOwner != null && messageOwner.media != null && messageOwner.media.ttl_seconds == 0x7FFFFFFF;
++        return false;
+     }
+ 
+     public boolean isVideo() {
+diff --git a/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java b/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java
+index 93bc81c..c9b49e3 100644
+--- a/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java
++++ b/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java
+@@ -14378,7 +14378,7 @@ public class MessagesController extends BaseController implements NotificationCe
+     }
+ 
+     public void markMessageContentAsRead(MessageObject messageObject) {
+-        if (messageObject.scheduled) {
++        if (messageObject.scheduled || messageObject.messageOwner != null && (messageObject.messageOwner.ttl > 0 || messageObject.messageOwner.media != null && messageObject.messageOwner.media.ttl_seconds != 0)) {
+             return;
+         }
+         ArrayList<Integer> arrayList = new ArrayList<>();
+@@ -14453,6 +14453,10 @@ public class MessagesController extends BaseController implements NotificationCe
+     }
+ 
+     public void doDeleteShowOnceTask(long taskId, long dialogId, int mid) {
++        // View-once media is kept as regular local media in this build.
++        if (true) {
++            return;
++        }
+         getMessagesStorage().removePendingTask(taskId);
+         ArrayList<Integer> mids = new ArrayList<>();
+         mids.add(mid);
+@@ -14464,6 +14468,10 @@ public class MessagesController extends BaseController implements NotificationCe
+     }
+ 
+     public void markMessageAsRead2(long dialogId, int mid, TLRPC.InputChannel inputChannel, int ttl, long taskId, boolean createDeleteTask) {
++        // Do not report view-once media consumption or schedule its deletion.
++        if (true) {
++            return;
++        }
+         if (mid == 0 || ttl < 0) {
+             return;
+         }
+@@ -14521,6 +14529,9 @@ public class MessagesController extends BaseController implements NotificationCe
+     }
+ 
+     public void markMessageAsRead(long dialogId, long randomId, int ttl) {
++        if (ttl > 0) {
++            return;
++        }
+         if (randomId == 0 || dialogId == 0 || ttl <= 0 && ttl != Integer.MIN_VALUE) {
+             return;
+         }
+@@ -21652,6 +21663,10 @@ public class MessagesController extends BaseController implements NotificationCe
+     }
+ 
+     public SponsoredMessagesInfo getSponsoredMessages(long dialogId) {
++        // This build never requests or injects sponsored channel/bot messages.
++        if (true) {
++            return null;
++        }
+         SponsoredMessagesInfo info = sponsoredMessages.get(dialogId);
+         if (info != null && (info.loading || Math.abs(SystemClock.elapsedRealtime() - info.loadTime) <= 5 * 60 * 1000)) {
+             return info;
+@@ -24366,9 +24381,7 @@ public class MessagesController extends BaseController implements NotificationCe
+     }
+ 
+     public boolean isSponsoredDisabled() {
+-        TLRPC.UserFull userFull = getUserFull(getUserConfig().getClientUserId());
+-        if (userFull == null) return false;
+-        return !userFull.sponsored_enabled;
++        return true;
+     }
+ 
+     private boolean loadingAvailableEffects;
+diff --git a/TMessagesProj/src/main/java/org/telegram/messenger/video/VideoAds.java b/TMessagesProj/src/main/java/org/telegram/messenger/video/VideoAds.java
+index a402447..ec7023a 100644
+--- a/TMessagesProj/src/main/java/org/telegram/messenger/video/VideoAds.java
++++ b/TMessagesProj/src/main/java/org/telegram/messenger/video/VideoAds.java
+@@ -176,6 +176,9 @@ public static VideoAds make(
+     }
+ 
+     private void init(BulletinFactory bulletinFactory) {
++        if (MessagesController.getInstance(currentAccount).isSponsoredDisabled()) {
++            return;
++        }
+         this.bulletinFactory = bulletinFactory;
+         this.lastTime = System.currentTimeMillis();
+         this.first = true;
+@@ -195,7 +198,7 @@ public static VideoAds make(
+     private void load() {
+         if (loading || loaded) return;
+ 
+-        if (UserConfig.getInstance(currentAccount).isPremium() && MessagesController.getInstance(currentAccount).isSponsoredDisabled()) {
++        if (MessagesController.getInstance(currentAccount).isSponsoredDisabled()) {
+             return;
+         }
+ 
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Adapters/DialogsSearchAdapter.java b/TMessagesProj/src/main/java/org/telegram/ui/Adapters/DialogsSearchAdapter.java
+index 4146704..60e0cac 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Adapters/DialogsSearchAdapter.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Adapters/DialogsSearchAdapter.java
+@@ -1131,7 +1131,7 @@ public class DialogsSearchAdapter extends RecyclerListView.SelectionAdapter {
+                 ConnectionsManager.getInstance(currentAccount).cancelRequest(sponsoredReqId, true);
+                 sponsoredReqId = 0;
+             }
+-            if (query == null || query.length() < 4 || UserConfig.getInstance(currentAccount).isPremium() && MessagesController.getInstance(currentAccount).isSponsoredDisabled()) {
++            if (query == null || query.length() < 4 || MessagesController.getInstance(currentAccount).isSponsoredDisabled()) {
+                 sponsoredQuery = null;
+             } else {
+                 final TLRPC.TL_contacts_getSponsoredPeers req = new TLRPC.TL_contacts_getSponsoredPeers();
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java b/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java
+index 9dff553..9aae7ba 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/ChatActivity.java
+@@ -25028,7 +25028,7 @@ public class ChatActivity extends BaseFragment implements
+     private Pattern sponsoredUrlPattern;
+     private MessageObject botSponsoredMessage;
+     private void addSponsoredMessages(boolean animated) {
+-        if (sponsoredMessagesAdded || chatMode != 0 || !ChatObject.isChannel(currentChat) && !UserObject.isBot(currentUser) || !forwardEndReached[0] || getUserConfig().isPremium() && getMessagesController().isSponsoredDisabled() || isReport()) {
++        if (sponsoredMessagesAdded || chatMode != 0 || !ChatObject.isChannel(currentChat) && !UserObject.isBot(currentUser) || !forwardEndReached[0] || getMessagesController().isSponsoredDisabled() || isReport()) {
+             return;
+         }
+         MessagesController.SponsoredMessagesInfo res = getMessagesController().getSponsoredMessages(dialog_id);
+@@ -39386,7 +39386,7 @@ public class ChatActivity extends BaseFragment implements
+             final boolean isSavedMessages = did == UserConfig.getInstance(UserConfig.selectedAccount).clientUserId;
+             final ArrayList<MessageObject> finalArrayList = arrayList;
+             Runnable delayedRunnalble = () -> {
+-                int result = SendMessagesHelper.getInstance(currentAccount).sendMessage(finalArrayList, did, false, false, true, 0, 0, null, -1, 0, getSendMonoForumPeerId(), getSendMessageSuggestionParams());
++                int result = SendMessagesHelper.getInstance(currentAccount).sendMessage(finalArrayList, did, true, false, true, 0, 0, null, -1, 0, getSendMonoForumPeerId(), getSendMessageSuggestionParams());
+                 AlertsCreator.showSendMediaAlert(result, ChatActivity.this, null);
+             };
+ 
+@@ -39651,8 +39651,6 @@ public class ChatActivity extends BaseFragment implements
+             return messageObject != null
+                 && messageObject.messageOwner != null
+                 && chatMode != MODE_SCHEDULED
+-                && !isPeerNoForwards()
+-                && !messageObject.messageOwner.noforwards
+                 && messageObject.type != MessageObject.TYPE_PAID_MEDIA;
+         }
+ 
+@@ -46188,24 +46186,24 @@ public class ChatActivity extends BaseFragment implements
+                                     icons.add(R.drawable.msg_addbot);
+                                 }
+                             }
+-                        } else if (selectedObject.isMusic() && !noforwardsOrPaidMedia && !selectedObject.isVoiceOnce() && !selectedObject.isRoundOnce()) {
++                        } else if (selectedObject.isMusic() && !selectedObject.isVoiceOnce() && !selectedObject.isRoundOnce()) {
+                             items.add(LocaleController.getString(R.string.SaveToMusic));
+                             options.add(OPTION_SAVE_TO_DOWNLOADS_OR_MUSIC);
+                             icons.add(R.drawable.msg_download);
+-                        } else if (selectedObject.isDocument() && !noforwardsOrPaidMedia && !selectedObject.isVoiceOnce() && !selectedObject.isRoundOnce()) {
++                        } else if (selectedObject.isDocument() && !selectedObject.isVoiceOnce() && !selectedObject.isRoundOnce()) {
+                             items.add(LocaleController.getString(R.string.SaveToDownloads));
+                             options.add(OPTION_SAVE_TO_DOWNLOADS_OR_MUSIC);
+                             icons.add(R.drawable.msg_download);
+                         }
+                     }
+-                } else if (type == 3 && !noforwardsOrPaidMedia) {
++                } else if (type == 3) {
+                     if (selectedObject.messageOwner.media instanceof TLRPC.TL_messageMediaWebPage && MessageObject.isNewGifDocument(selectedObject.messageOwner.media.webpage.document)) {
+                         items.add(LocaleController.getString(R.string.SaveToGIFs));
+                         options.add(OPTION_ADD_TO_GIFS);
+                         icons.add(R.drawable.msg_gif);
+                     }
+                 } else if (type == 4) {
+-                    if (!noforwardsOrPaidMedia && !selectedObject.hasRevealedExtendedMedia()) {
++                    if (!selectedObject.isSponsored()) {
+                         if (selectedObject.isVideo()) {
+                             if (!selectedObject.needDrawBluredPreview()) {
+                                 items.add(LocaleController.getString(R.string.SaveToGallery));
+@@ -46246,7 +46244,7 @@ public class ChatActivity extends BaseFragment implements
+                     items.add(LocaleController.getString(R.string.ApplyLocalizationFile));
+                     options.add(OPTION_APPLY_LOCALIZATION_OR_THEME);
+                     icons.add(R.drawable.msg_language);
+-                    if (!noforwardsOrPaidMedia && !selectedObject.isVoiceOnce() && !selectedObject.isRoundOnce()) {
++                    if (!selectedObject.isVoiceOnce() && !selectedObject.isRoundOnce()) {
+                         items.add(LocaleController.getString(R.string.SaveToDownloads));
+                         options.add(OPTION_SAVE_TO_DOWNLOADS_OR_MUSIC);
+                         icons.add(R.drawable.msg_download);
+@@ -46258,7 +46256,7 @@ public class ChatActivity extends BaseFragment implements
+                     items.add(LocaleController.getString(R.string.ApplyThemeFile));
+                     options.add(OPTION_APPLY_LOCALIZATION_OR_THEME);
+                     icons.add(R.drawable.msg_theme);
+-                    if (!noforwardsOrPaidMedia && !selectedObject.isVoiceOnce() && !selectedObject.isRoundOnce()) {
++                    if (!selectedObject.isVoiceOnce() && !selectedObject.isRoundOnce()) {
+                         items.add(LocaleController.getString(R.string.SaveToDownloads));
+                         options.add(OPTION_SAVE_TO_DOWNLOADS_OR_MUSIC);
+                         icons.add(R.drawable.msg_download);
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/AudioPlayerAlert.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/AudioPlayerAlert.java
+index 88fe6a1..c79477d 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/AudioPlayerAlert.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/AudioPlayerAlert.java
+@@ -2252,11 +2252,7 @@ public class AudioPlayerAlert extends BottomSheet implements NotificationCenter.
+             }
+             final long dialogId = messageObject.getDialogId();
+             final long docId = messageObject.getDocument() != null ? messageObject.getDocument().id : 0L;
+-            final boolean noforwards = (
+-                dialogId < 0 && MessagesController.getInstance(currentAccount).isPeerNoForwards(dialogId) ||
+-                MessagesController.getInstance(currentAccount).isPeerNoForwards(messageObject.getDialogId()) ||
+-                messageObject.messageOwner.noforwards
+-            );
++            final boolean noforwards = false;
+             if (noforwards != this.noforwards) {
+                 this.noforwards = noforwards;
+ 
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Components/ShareAlert.java b/TMessagesProj/src/main/java/org/telegram/ui/Components/ShareAlert.java
+index 3471788..f045762 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Components/ShareAlert.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Components/ShareAlert.java
+@@ -2244,7 +2244,7 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
+         return containerView.getMeasuredHeight() - containerViewTop;
+     }
+ 
+-    private boolean showSendersName = true;
++    private boolean showSendersName = false;
+     private ActionBarPopupWindow sendPopupWindow;
+     private boolean onSendLongClick(View view) {
+         if (parentActivity == null) {
+@@ -2287,7 +2287,7 @@ public class ShareAlert extends BottomSheet implements NotificationCenter.Notifi
+             }
+             sendPopupLayout1.addView(showSendersNameView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
+             showSendersNameView.setTextAndIcon(false ? LocaleController.getString(R.string.ShowSenderNames) : LocaleController.getString(R.string.ShowSendersName), 0);
+-            showSendersNameView.setChecked(showSendersName = true);
++            showSendersNameView.setChecked(showSendersName);
+ 
+             ActionBarMenuSubItem hideSendersNameView = new ActionBarMenuSubItem(getContext(), true, false, true, resourcesProvider);
+             if (darkTheme) {
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/PhotoViewer.java b/TMessagesProj/src/main/java/org/telegram/ui/PhotoViewer.java
+index afb49ee..20d187f 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/PhotoViewer.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/PhotoViewer.java
+@@ -14123,7 +14123,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
+ 
+         animatorPollAttachButtonsVisibility.setValue(sendPhotoTypeIsPollMediaEdit, false);
+ 
+-        final boolean noforwards = messageObject != null && (MessagesController.getInstance(currentAccount).isPeerNoForwards(messageObject.getDialogId()) || (messageObject.messageOwner != null && messageObject.messageOwner.noforwards) || messageObject.hasRevealedExtendedMedia());
++        final boolean noforwards = false;
+         if (messageObject != null && messages == null) {
+             if (messageObject.messageOwner != null && MessageObject.getMedia(messageObject.messageOwner) instanceof TLRPC.TL_messageMediaWebPage && MessageObject.getMedia(messageObject.messageOwner).webpage != null) {
+                 TLRPC.WebPage webPage = MessageObject.getMedia(messageObject.messageOwner).webpage;
+@@ -14571,7 +14571,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
+             actionBarContainer.setSubtitle(subtitle, animated);
+ 
+             boolean isInvoice = newMessageObject.isInvoice();
+-            boolean noforwards = MessagesController.getInstance(currentAccount).isPeerNoForwards(newMessageObject.getDialogId()) || (newMessageObject.messageOwner != null && newMessageObject.messageOwner.noforwards) || newMessageObject.hasRevealedExtendedMedia();
++            boolean noforwards = false;
+             if (isVideo && !isLivePhoto) {
+                 bottomLayout.setVisibility(View.VISIBLE);
+                 bottomLayout.setTag(1);
+@@ -14808,7 +14808,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
+             if (DialogObject.isEncryptedDialog(currentDialogId) && !isEmbedVideo || noforwards) {
+                 setItemVisible(sendItem, false, false);
+             }
+-            if (isEmbedVideo || newMessageObject.messageOwner.ttl != 0 && newMessageObject.messageOwner.ttl < 60 * 60 || noforwards) {
++            if (isEmbedVideo || noforwards) {
+                 allowShare = false;
+                 galleryButton.setVisibility(View.GONE);
+                 galleryGap.setVisibility(View.GONE);
+@@ -14889,7 +14889,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
+             } else if (isEvent) {
+                 title = getString(R.string.AttachPhoto);
+             }
+-            final boolean noforwards = avatarsDialogId != 0 && MessagesController.getInstance(currentAccount).isPeerNoForwards(avatarsDialogId);
++            final boolean noforwards = false;
+             if (noforwards) {
+                 galleryButton.setVisibility(View.GONE);
+                 galleryGap.setVisibility(View.GONE);
+@@ -15180,7 +15180,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
+             }
+             menuItem.hideSubItem(gallery_menu_translate);
+             menuItem.hideSubItem(gallery_menu_hide_translation);
+-            allowShare = !MessagesController.getInstance(currentAccount).isPeerNoForwards(currentDialogId) && (currentMessageObject == null || !currentMessageObject.hasRevealedExtendedMedia());
++            allowShare = true;
+             TL_iv.PageBlock pageBlock = pageBlocksAdapter.get(switchingToIndex);
+             caption = pageBlocksAdapter.getCaption(switchingToIndex);
+             isVideo = pageBlocksAdapter.isVideo(switchingToIndex);
+@@ -15691,7 +15691,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
+                 return;
+             }
+             MessageObject newMessageObject = imagesArr.get(currentIndex);
+-            final boolean noforwards = newMessageObject != null && (MessagesController.getInstance(currentAccount).isPeerNoForwards(newMessageObject.getDialogId()) || (newMessageObject.messageOwner != null && newMessageObject.messageOwner.noforwards) || newMessageObject.hasRevealedExtendedMedia());
++            final boolean noforwards = false;
+             sameImage = init && currentMessageObject != null && currentMessageObject.getId() == newMessageObject.getId();
+             if (sameImage) {
+                 newMessageObject.putInDownloadsStore = currentMessageObject.putInDownloadsStore;
+@@ -17479,9 +17479,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
+                 WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM |
+                 WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS;
+             if (chatActivity != null && chatActivity.getCurrentEncryptedChat() != null ||
+-                avatarsDialogId != 0 && MessagesController.getInstance(currentAccount).isPeerNoForwards(avatarsDialogId) ||
+-                messageObject != null && (MessagesController.getInstance(currentAccount).isPeerNoForwards(messageObject.getDialogId()) ||
+-                (messageObject.messageOwner != null && messageObject.messageOwner.noforwards)) || messageObject != null && messageObject.hasRevealedExtendedMedia()
++                false
+             ) {
+                 windowLayoutParams.flags |= WindowManager.LayoutParams.FLAG_SECURE;
+                 AndroidUtilities.logFlagSecure();
+diff --git a/TMessagesProj/src/main/java/org/telegram/ui/Stories/PeerStoriesView.java b/TMessagesProj/src/main/java/org/telegram/ui/Stories/PeerStoriesView.java
+index 200ae0c..919085c 100644
+--- a/TMessagesProj/src/main/java/org/telegram/ui/Stories/PeerStoriesView.java
++++ b/TMessagesProj/src/main/java/org/telegram/ui/Stories/PeerStoriesView.java
+@@ -7151,6 +7151,9 @@ public class PeerStoriesView extends SizeNotifierFrameLayout implements Notifica
+         }
+ 
+         public boolean allowScreenshots() {
++            if (true) {
++                return true;
++            }
+             if (uploadingStory != null) {
+                 return uploadingStory.entry.allowScreenshots;
+             }
