@@ -17,6 +17,30 @@ repositories {
     google()
 }
 
+// Apply the repository's maintained Telegram customizations before any module is
+// configured. Keeping the changes as a reviewed patch makes rebasing onto new
+// upstream Telegram releases straightforward and fails the build on conflicts.
+def telegramCustomizations = rootProject.file('gradle/telegram-customizations.patch')
+if (telegramCustomizations.exists()) {
+    def patchCheck = exec {
+        commandLine 'git', 'apply', '--check', telegramCustomizations.absolutePath
+        ignoreExitValue = true
+    }
+    if (patchCheck.exitValue == 0) {
+        exec {
+            commandLine 'git', 'apply', telegramCustomizations.absolutePath
+        }
+    } else {
+        def alreadyApplied = exec {
+            commandLine 'git', 'apply', '--reverse', '--check', telegramCustomizations.absolutePath
+            ignoreExitValue = true
+        }
+        if (alreadyApplied.exitValue != 0) {
+            throw new GradleException('Telegram customizations no longer apply cleanly. Rebase gradle/telegram-customizations.patch onto the current upstream source.')
+        }
+    }
+}
+
 // Strip JLatexMath fonts we don't ship (transitive AAR assets from
 // io.noties.markwon:ext-latex -> ru.noties:jlatexmath-android, ~764 KB total under
 // assets/org/scilab/forge/jlatexmath/fonts/). Has to live in the APK modules — a
@@ -29,7 +53,7 @@ subprojects {
     plugins.withId('com.android.application') {
         android {
             androidResources {
-                ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~:!optional:!licences:!*stmary*:!*eufb*'
+                ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~:!optional:!licences:!*eufb*'
             }
         }
     }
