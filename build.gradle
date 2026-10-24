@@ -25,6 +25,7 @@ if (telegramCustomizations.exists()) {
     def patchCheck = exec {
         commandLine 'git', 'apply', '--check', telegramCustomizations.absolutePath
         ignoreExitValue = true
+        errorOutput = new ByteArrayOutputStream()
     }
     if (patchCheck.exitValue == 0) {
         exec {
@@ -34,6 +35,7 @@ if (telegramCustomizations.exists()) {
         def alreadyApplied = exec {
             commandLine 'git', 'apply', '--reverse', '--check', telegramCustomizations.absolutePath
             ignoreExitValue = true
+            errorOutput = new ByteArrayOutputStream()
         }
         if (alreadyApplied.exitValue != 0) {
             throw new GradleException('Telegram customizations no longer apply cleanly. Rebase gradle/telegram-customizations.patch onto the current upstream source.')
